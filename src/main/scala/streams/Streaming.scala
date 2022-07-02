@@ -84,6 +84,32 @@ object Streaming extends ZIOAppDefault :
         }
       }
 
+    def drop(n: Int): ZStream[R, E, A] =
+      ZStream {
+        Ref.make(0).zip(process).map { (ref, pull) =>
+          lazy val skipN: ZIO[R, Option[E], A] =
+            ref.get.flatMap { i =>
+              if i >= n then pull
+              else ref.update(_ + 1) *> pull *> skipN
+            }
+          skipN
+        }
+      }
+
+    def dropAlt(n: Int): ZStream[R, E, A] =
+      ZStream {
+        Ref.make(0).zip(process).map { (ref, pull) =>
+          lazy val skipN: ZIO[R, Option[E], A] =
+            pull.flatMap { a =>
+              ref.get.flatMap { i =>
+                if i >= n then Pull.emit(a)
+                else ref.update(_ + 1) *> skipN
+              }
+            }
+          skipN
+        }
+      }
+
     def runCollect: ZIO[R, E, Chunk[A]] =
       ZIO.scoped {
         process.flatMap { pull =>
@@ -138,18 +164,19 @@ object Streaming extends ZIOAppDefault :
   val myRealStream = ZStream.fromIterator(Iterator.fromList(List(1, 2, 3, 4, 5, 6, 7)))
 
   val run =
-    fileStream.runCollect
-  //    for {
-  //      chunk <- myRealStream
-  //        .tap(a => ZIO.debug(s"WOW $a"))
-  //        .map(_ * 2)
-  //        .tap(a => ZIO.debug(s"BIGGER WOW $a"))
-  //        .take(3)
-  //        .tap(_ => ZIO.sleep(1.second))
-  //        .runCollect
-  //      _ <- ZIO.debug(chunk)
-  //      _ <- second
-  //    } yield ()
+  //    fileStream.runCollect
+    for {
+      chunk <- myRealStream
+        .dropAlt(2)
+        .tap(a => ZIO.debug(s"WOW $a"))
+        .map(_ * 2)
+        .tap(a => ZIO.debug(s"BIGGER WOW $a"))
+        .take(3)
+        .tap(_ => ZIO.sleep(1.second))
+        .runCollect
+      _ <- ZIO.debug(chunk)
+      _ <- second
+    } yield ()
 
   lazy val second = ZIO.succeed {
     List(1, 2, 3, 4, 5, 6, 7)
