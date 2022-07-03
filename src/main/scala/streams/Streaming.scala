@@ -294,7 +294,7 @@ object Streaming extends ZIOAppDefault :
     private def writer(file: String): ZIO[Scope, Nothing, BufferedWriter] =
       ZIO.acquireRelease(
         ZIO.succeed(BufferedWriter(FileWriter(file)))
-      )(writer => ZIO.debug("closing file") *> ZIO.succeed(writer.close()))
+      )(writer => ZIO.succeed(writer.close()))
 
     def toFile(file: String): ZSink[Any, Throwable, String, Unit] =
       ZSink {
@@ -304,11 +304,10 @@ object Streaming extends ZIOAppDefault :
             then ZIO.succeed(Some(()))
             else ZIO.foreachDiscard(in) {
               s =>
-                ZIO.debug(s"in file $s") *>
-                  ZIO.succeed {
-                    writer.write(s)
-                    writer.newLine()
-                  }
+                ZIO.succeed {
+                  writer.write(s)
+                  writer.newLine()
+                }
             }.as(None)
         }
       }
