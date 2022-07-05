@@ -4,7 +4,7 @@ import zio.*
 
 import java.io.{BufferedReader, BufferedWriter, FileReader, FileWriter}
 
-object Streaming extends ZIOAppDefault :
+object Streaming extends ZIOAppDefault:
 
   // ZIO Stream — Part 1 — Introduction (https://youtu.be/y21EnJ28mpM)
   // ZIO Stream - Part 2 - Sinks! (https://youtu.be/T5vBs6_W_Xg)
