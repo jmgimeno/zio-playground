@@ -59,13 +59,12 @@ object Streaming extends ZIOAppDefault :
 
   //  val zio1: ZIO[Any, String, Option[Int]] = ???
   //  val zio2: ZIO[Any, Option[String], Int] = zio1.some
-  //  val zio3: ZIO[Any, Nothing, Either[String, Int]] = ???
 
   // Effectual iterator
   // In reality the stream is chunked so A is Chunk[A]
 
   // Protocol:
-  // - Succeed with A -> emit a vaule of type E
+  // - Succeed with A -> emit a value of type E
   // - Fail with None -> end of stream
   // - Fail with Some(E) -> fail with an E
   final case class ZStream[-R, +E, +A](process: ZIO[R with Scope, E, ZIO[R, Option[E], A]]):
@@ -281,13 +280,11 @@ object Streaming extends ZIOAppDefault :
 
     def runCollect[A]: ZSink[Any, Nothing, A, Chunk[A]] =
       ZSink {
-        ZIO.scoped {
-          Ref.make(Chunk.empty[A]).map { ref =>
-            in =>
-              if in.isEmpty
-              then ref.get.asSome
-              else ref.update(_ ++ in).as(None)
-          }
+        Ref.make(Chunk.empty[A]).map { ref =>
+          in =>
+            if in.isEmpty
+            then ref.get.asSome
+            else ref.update(_ ++ in).as(None)
         }
       }
 
@@ -379,7 +376,10 @@ object Streaming extends ZIOAppDefault :
   val notSoSimpleStreamProgram =
     simpleStream.map(_ * 3).map(_.toString).run(notSoSimpleSink).debug
 
-  val run = notSoSimpleStreamProgram
+  val exampleRunCollect =
+    simpleStream.map(_ * 3).runCollect.debug
+
+  val run = exampleRunCollect // notSoSimpleStreamProgram
 
 end Streaming
 
