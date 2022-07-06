@@ -75,7 +75,7 @@ object Channeling extends ZIOAppDefault :
   //       that you can open and then pull from
   //       (run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]])
 
-  final case class ZChannel[-Env, -InErr, -InElem, -InDone, +OutErr, +OutElem, +OutDone](
+  final case class ZChannel[-Env : EnvironmentTag, -InErr, -InElem, -InDone, +OutErr, +OutElem, +OutDone](
     run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]]
             => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]]):
 
@@ -90,16 +90,32 @@ object Channeling extends ZIOAppDefault :
         run(upstream).map(_.map(_.left.map(f)))
       }
 
-    def >>>[Env1 <: Env, OutErr2, OutElem2, OutDone2](
+    def >>>[Env1 <: Env : EnvironmentTag, OutErr2, OutElem2, OutDone2](
       that: ZChannel[Env1, OutErr, OutElem, OutDone, OutErr2, OutElem2, OutDone2]
     ): ZChannel[Env1, InErr, InElem, InDone, OutErr2, OutElem2, OutDone2] =
       ZChannel { upstream =>
         ZIO.environment[Env].flatMap { environment =>
           that.run(self.run(upstream)
                        .map(_.provideEnvironment(environment))
-                       .provideSomeEnvironment[Scope](???))
+                       .provideSomeEnvironment[Scope](_ ++ environment))
         }
       }
+
+      /*
+    def >>>[Env1 <: Env, OutErr2, OutElem2, OutDone2](
+      that: ZChannel[Env1, OutErr, OutElem, OutDone, OutErr2, OutElem2, OutDone2]
+    ): ZChannel[Env1, InErr, InElem, InDone, OutErr2, OutElem2, OutDone2] =
+      ZChannel { upstream =>
+        ZIO.environment[Env].flatMap { environment =>
+            that.run {
+              ZIO.scoped {
+                self.run(upstream)
+                  .map(_.provideEnvironment(environment))
+              }.provideEnvironment(environment)
+            }
+        }
+      }
+      */
     // compiling: that.run(self.run(upstream))
     // Found:    zio.ZIO[Env & zio.Scope, OutErr, zio.ZIO[Env, OutErr, Either[OutElem, OutDone]]]
     // Required: zio.ZIO[      zio.Scope, OutErr, zio.IO[      OutErr, Either[OutElem, OutDone]]]
