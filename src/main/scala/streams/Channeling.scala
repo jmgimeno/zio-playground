@@ -2,7 +2,7 @@ package streams
 
 import zio.*
 
-object Channeling extends ZIOAppDefault :
+object Channeling extends ZIOAppDefault:
 
   // ZIO Streams — Part 3 — Channels
   // https://youtu.be/trF44bGHwXg
@@ -128,6 +128,19 @@ object Channeling extends ZIOAppDefault :
       }
       */
 
+    def runDrain(using ev1: Any <:< InErr, ev2: Any <:< InElem, ev3: Any <:< InDone): ZIO[Env, OutErr, (Chunk[OutElem], OutDone)] =
+      ZIO.scoped {
+        self.run(ZIO.succeed(ZIO.succeed(Right(()))))
+          .flatMap { pull =>
+            def loop(acc: Chunk[OutElem]): ZIO[Env, OutErr, (Chunk[OutElem], OutDone)] =
+              pull.flatMap {
+                case Left(elem) => loop(acc :+ elem)
+                case Right(done) => ZIO.succeed(acc -> done)
+              }
+            loop(Chunk.empty)
+          }
+      }
+
   end ZChannel
 
 
@@ -155,10 +168,15 @@ object Channeling extends ZIOAppDefault :
 
   final case class ZStream[-R, +E, +A](channel: ZChannel[R, Any, Any, Any, E, Chunk[A], Any]):
 
+    self =>
+
     def map[B](f: A => B): ZStream[R, E, B] =
       ZStream {
         channel.mapElem(_.map(f))
       }
+
+    def run[R1 <: R : EnvironmentTag, E2, Z](sink: ZSink[R1, E, E2, A, Z]): ZIO[R1, E2, Z] =
+      (self.channel >>> sink.channel).runDrain.map(_._2)
 
   end ZStream
 
@@ -182,7 +200,7 @@ object Channeling extends ZIOAppDefault :
   // InElem: we get a Chunk[A] from the stream (the stream is chunked)
   // InDone:  we don't have a useful indone because it just signals that the upstream has no more elements, so we use Any
   // OutElem: is Nothing because we are not producing values until we give a summary value when we're done.
-  final class ZSink[-R, -EIn, +EOut, -I, +O](channel: ZChannel[R, EIn, Chunk[I], Any, EOut, Nothing, O])
+  final case class ZSink[-R, -EIn, +EOut, -I, +O](channel: ZChannel[R, EIn, Chunk[I], Any, EOut, Nothing, O])
 
   object ZSink:
 
@@ -190,7 +208,7 @@ object Channeling extends ZIOAppDefault :
     // if we get E failures, we fail with E
     // we get elements of type E
     // when done, we emit a Chunk[A]
-    // We can think od this as drainning the channel: we keep pulling from upstream until is done
+    // We can think od this as draining the channel: we keep pulling from upstream until is done
     def runCollect[E, A]: ZSink[Any, E, E, A, Chunk[A]] =
       ZSink {
         ZChannel { upstream =>
@@ -200,7 +218,6 @@ object Channeling extends ZIOAppDefault :
                 case Left(chunk) => loop(acc ++ chunk)
                 case Right(_) => ZIO.succeed(Right(acc))
               }
-
             loop(Chunk.empty)
           }
         }
@@ -214,6 +231,10 @@ object Channeling extends ZIOAppDefault :
   // Requirements have a minimum expectation, the more you know, the more you expect of a type, and the less you can accept
   // Expectations get maximally vague, the more you return, the less you know but the more you can accept
 
-  def run = ???
+  val stream = ZStream.fromIterator(Iterator(1, 2, 3, 4, 5)).map(_ * 2)
+
+  val run =
+    stream.run(ZSink.runCollect).debug
+    //(stream.channel >>> ZSink.runCollect.channel).runDrain.debug
 
 end Channeling
