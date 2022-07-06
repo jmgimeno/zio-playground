@@ -101,7 +101,18 @@ object Channeling extends ZIOAppDefault :
         }
       }
 
-      /*
+    // compiling: that.run(self.run(upstream))
+    // Found:    zio.ZIO[Env & zio.Scope, OutErr, zio.ZIO[Env, OutErr, Either[OutElem, OutDone]]]
+    // Required: zio.ZIO[      zio.Scope, OutErr, zio.IO[      OutErr, Either[OutElem, OutDone]]]
+    //
+    // - So I have to provide the Env to the external ZIO (maintaining the Scope)
+    // - And provide the environment to the internal one
+    // - Then the compiler asks for an implicit Tag[ZChannel.this.Env]
+    // => Make both Env and Env1 :EnvironmentTag
+
+    /*
+    This also compiles but I think it closes the scope too early.
+
     def >>>[Env1 <: Env, OutErr2, OutElem2, OutDone2](
       that: ZChannel[Env1, OutErr, OutElem, OutDone, OutErr2, OutElem2, OutDone2]
     ): ZChannel[Env1, InErr, InElem, InDone, OutErr2, OutElem2, OutDone2] =
@@ -116,17 +127,7 @@ object Channeling extends ZIOAppDefault :
         }
       }
       */
-    // compiling: that.run(self.run(upstream))
-    // Found:    zio.ZIO[Env & zio.Scope, OutErr, zio.ZIO[Env, OutErr, Either[OutElem, OutDone]]]
-    // Required: zio.ZIO[      zio.Scope, OutErr, zio.IO[      OutErr, Either[OutElem, OutDone]]]
 
-    // that.run(self.run(upstream)).provideEnvironment(environment)
-    // Found:    zio.ZIO[Env & zio.Scope, OutErr, zio.ZIO[Env, OutErr, Either[OutElem, OutDone]]]
-    // Required: zio.ZIO[zio.Scope, OutErr, zio.IO[OutErr, Either[OutElem, OutDone]]]
-
-    // that.run(self.run(upstream).provideEnvironment(environment))
-    // Found:    zio.IO[            OutErr, zio.ZIO[Env, OutErr, Either[OutElem, OutDone]]]
-    // Required: zio.ZIO[zio.Scope, OutErr, zio.IO[      OutErr, Either[OutElem, OutDone]]]
   end ZChannel
 
 
