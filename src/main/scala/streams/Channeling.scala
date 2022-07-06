@@ -111,7 +111,7 @@ object Channeling extends ZIOAppDefault:
     // => Make both Env and Env1 :EnvironmentTag
 
     /*
-    This also compiles but I think it closes the scope too early.
+    This also compiles but it closes the scope instead of extending it.
 
     def >>>[Env1 <: Env, OutErr2, OutElem2, OutDone2](
       that: ZChannel[Env1, OutErr, OutElem, OutDone, OutErr2, OutElem2, OutDone2]
@@ -161,7 +161,7 @@ object Channeling extends ZIOAppDefault:
   end ZChannel
 
   // A stream just produces values
-  // - so it does not care what its inputs are (so the In-tyoes are Any)
+  // - so it does not care what its inputs are (so the In-types are Any)
   // - the OutErr will be E
   // - the OutElem will be Chunk[A] (we recover chunkiness)
   // - and we can use anything for signaling the end of the stream (OutDone)
@@ -198,7 +198,7 @@ object Channeling extends ZIOAppDefault:
   end ZStream
 
   // InElem: we get a Chunk[A] from the stream (the stream is chunked)
-  // InDone:  we don't have a useful indone because it just signals that the upstream has no more elements, so we use Any
+  // InDone:  we don't have a useful InDone because it just signals that the upstream has no more elements, so we use Any
   // OutElem: is Nothing because we are not producing values until we give a summary value when we're done.
   final case class ZSink[-R, -EIn, +EOut, -I, +O](channel: ZChannel[R, EIn, Chunk[I], Any, EOut, Nothing, O])
 
