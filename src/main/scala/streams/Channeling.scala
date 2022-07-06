@@ -32,11 +32,11 @@ object Channeling extends ZIOAppDefault :
     // - Transformation of the sink type
     //    - Simply rename
 
-    final case class ZStream[-Env, +OutErr, +OutElem, +OutDone]
-    (pull: ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[Chunk[OutElem], OutDone]]])
+    final case class ZStream[-Env, +OutErr, +OutElem, +OutDone](
+      pull: ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[Chunk[OutElem], OutDone]]])
 
-    final case class ZSink[-Env, +OutErr, -InElem, +OutDone]
-    (push: ZIO[Env with Scope, OutErr, Chunk[InElem] => ZIO[Env, OutErr, Option[OutDone]]])
+    final case class ZSink[-Env, +OutErr, -InElem, +OutDone](
+      push: ZIO[Env with Scope, OutErr, Chunk[InElem] => ZIO[Env, OutErr, Option[OutDone]]])
 
   end Old
 
@@ -75,22 +75,50 @@ object Channeling extends ZIOAppDefault :
   //       that you can open and then pull from
   //       (run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]])
 
-  final case class ZChannel[-Env, -InErr, -InElem, -InDone, +OutErr, +OutElem, +OutDone]
-    (run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]]):
+  final case class ZChannel[-Env, -InErr, -InElem, -InDone, +OutErr, +OutElem, +OutDone](
+    run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]]
+            => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]]):
 
-    // Whatever the upstrem we give it, this produces a thing we can pull from, and every time we pull from it, the element
-    // will be transformed by the function
-    def mapElem[OutElem2](f: OutElem => OutElem2): ZChannel[Env, InErr, InElem, InDone, OutErr, OutElem2, OutDone] =
+    self =>
+
+    // Whatever the upstream we give it, this produces a new thing we can pull from, and every time we emit and element we
+    // will transform it with the function
+    def mapElem[OutElem2](
+      f: OutElem => OutElem2
+    ): ZChannel[Env, InErr, InElem, InDone, OutErr, OutElem2, OutDone] =
       ZChannel { upstream =>
         run(upstream).map(_.map(_.left.map(f)))
       }
 
+    def >>>[Env1 <: Env, OutErr2, OutElem2, OutDone2](
+      that: ZChannel[Env1, OutErr, OutElem, OutDone, OutErr2, OutElem2, OutDone2]
+    ): ZChannel[Env1, InErr, InElem, InDone, OutErr2, OutElem2, OutDone2] =
+      ZChannel { upstream =>
+        ZIO.environment[Env].flatMap { environment =>
+          that.run(self.run(upstream)
+                       .map(_.provideEnvironment(environment))
+                       .provideSomeEnvironment[Scope](???))
+        }
+      }
+    // compiling: that.run(self.run(upstream))
+    // Found:    zio.ZIO[Env & zio.Scope, OutErr, zio.ZIO[Env, OutErr, Either[OutElem, OutDone]]]
+    // Required: zio.ZIO[      zio.Scope, OutErr, zio.IO[      OutErr, Either[OutElem, OutDone]]]
+
+    // that.run(self.run(upstream)).provideEnvironment(environment)
+    // Found:    zio.ZIO[Env & zio.Scope, OutErr, zio.ZIO[Env, OutErr, Either[OutElem, OutDone]]]
+    // Required: zio.ZIO[zio.Scope, OutErr, zio.IO[OutErr, Either[OutElem, OutDone]]]
+
+    // that.run(self.run(upstream).provideEnvironment(environment))
+    // Found:    zio.IO[            OutErr, zio.ZIO[Env, OutErr, Either[OutElem, OutDone]]]
+    // Required: zio.ZIO[zio.Scope, OutErr, zio.IO[      OutErr, Either[OutElem, OutDone]]]
   end ZChannel
 
 
   object ZChannel:
 
-    def fromIteratorChunk[A](iterator: => Iterator[A], chunkSize: Int = 1): ZChannel[Any, Any, Any, Any, Nothing, Chunk[A], Any] =
+    def fromIteratorChunk[A](
+      iterator: => Iterator[A], chunkSize: Int = 1
+    ): ZChannel[Any, Any, Any, Any, Nothing, Chunk[A], Any] =
       ZChannel { _ =>
         ZIO.succeed(iterator.grouped(chunkSize)).map { iterator =>
           ZIO.succeed(iterator.hasNext).map { b =>
@@ -133,6 +161,35 @@ object Channeling extends ZIOAppDefault :
       }
 
   end ZStream
+
+  // InElem: we get a Chunk[A] from the stream (the stream is chunked)
+  // InDone:  we don't have a useful indone because it just signals that the upstream has no more elements, so we use Any
+  // OutElem: is Nothing because we are not producing values until we give a summary value when we're done.
+  final class ZSink[-R, -EIn, +EOut, -I, +O](channel: ZChannel[R, EIn, Chunk[I], Any, EOut, Nothing, O])
+
+  object ZSink:
+
+    // no environment
+    // if we get E failures, we fail with E
+    // we get elements of type E
+    // when done, we emit a Chunk[A]
+    // We can think od this as drainning the channel: we keep pulling from upstream until is done
+    def runCollect[E, A]: ZSink[Any, E, E, A, Chunk[A]] =
+      ZSink {
+        ZChannel { upstream =>
+          upstream.map { pull =>
+            def loop(acc: Chunk[A]): IO[E, Either[Nothing, Chunk[A]]] =
+              pull.flatMap {
+                case Left(chunk) => loop(acc ++ chunk)
+                case Right(_) => ZIO.succeed(Right(acc))
+              }
+
+            loop(Chunk.empty)
+          }
+        }
+      }
+
+  end ZSink
 
   // Some comments on variance:
   // - In-types (contravariant) => requirements
