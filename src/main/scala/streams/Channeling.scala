@@ -113,6 +113,13 @@ object Channeling extends ZIOAppDefault:
     /*
     This also compiles but it closes the scope instead of extending it.
 
+    The problem is:
+
+      * we run that with the result of running self
+      * but, as we have used ZIO.scoped we close the pull we are returning, so if this pull needs
+        a resource (e.g. a file descriptor), as a stream gives elements one-by-one, when we are
+        pulling from the result we can get an error because the resource is already closed.
+
     def >>>[Env1 <: Env, OutErr2, OutElem2, OutDone2](
       that: ZChannel[Env1, OutErr, OutElem, OutDone, OutErr2, OutElem2, OutDone2]
     ): ZChannel[Env1, InErr, InElem, InDone, OutErr2, OutElem2, OutDone2] =
@@ -127,6 +134,37 @@ object Channeling extends ZIOAppDefault:
         }
       }
       */
+
+    /* NOTE to myself ideas on scopes:
+
+      - a managed resource needs a scope in the environment to be created, because it needs something
+        (a Scope) to add its finalizers to.
+      - to close a resource, we use ZIO.scope to enclose the effect that creates & uses the resource
+        by providing to the environment the Scope object with the finalizers
+
+      But my problem is (was) what happens when we create the managed resource somewhere else?
+      Because in there we don't have a Scope object, yet.
+
+      - I suppose the explanation is referential transparency: both the creation and use are simply
+        descriptions, and for all that counts it is the same as if the creation of the resource happened
+        inside the ZIO.scoped that will closes it. And this explains also that the scope can be extended as well.
+
+      The needed Scope will be provided at the end of the world for this resource.
+    */
+
+    /* @adamfraser
+
+      Another way to think about it is just not defining the end of the scope yet. That's really what Scope
+      gets you. It is a "dynamic" scope so you can keep doing more things with the resource by using operators
+      like flatMap and the life of the resource just keeps getting extended until you finally call ZIO.scoped
+      and that defines the lifetime of the resource. So all we're saying is that we're not ready to define the
+      lifetime of these resources yet, because we might always compose them with other stream operators like
+      piping this whole thing to something else.
+
+      It is like any other workflow that requires some context. If I access a Kafka service in the environment
+      and do something with it I don’t have a Kafka service yet but I create a workflow that needs a Kafka service
+      to be run and that can be provided later.
+    */
 
     def runDrain(using ev1: Any <:< InErr, ev2: Any <:< InElem, ev3: Any <:< InDone): ZIO[Env, OutErr, (Chunk[OutElem], OutDone)] =
       ZIO.scoped {
