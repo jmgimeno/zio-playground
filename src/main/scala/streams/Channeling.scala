@@ -33,10 +33,20 @@ object Channeling extends ZIOAppDefault:
     //    - Simply rename
 
     final case class ZStream[-Env, +OutErr, +OutElem, +OutDone](
-      pull: ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[Chunk[OutElem], OutDone]]])
+        pull: ZIO[
+          Env with Scope,
+          OutErr,
+          ZIO[Env, OutErr, Either[Chunk[OutElem], OutDone]]
+        ]
+    )
 
     final case class ZSink[-Env, +OutErr, -InElem, +OutDone](
-      push: ZIO[Env with Scope, OutErr, Chunk[InElem] => ZIO[Env, OutErr, Option[OutDone]]])
+        push: ZIO[
+          Env with Scope,
+          OutErr,
+          Chunk[InElem] => ZIO[Env, OutErr, Option[OutDone]]
+        ]
+    )
 
   end Old
 
@@ -75,29 +85,52 @@ object Channeling extends ZIOAppDefault:
   //       that you can open and then pull from
   //       (run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]])
 
-  final case class ZChannel[-Env : EnvironmentTag, -InErr, -InElem, -InDone, +OutErr, +OutElem, +OutDone](
-    run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]]
-            => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]]):
+  final case class ZChannel[
+      -Env: EnvironmentTag,
+      -InErr,
+      -InElem,
+      -InDone,
+      +OutErr,
+      +OutElem,
+      +OutDone
+  ](
+      run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] => ZIO[
+        Env with Scope,
+        OutErr,
+        ZIO[Env, OutErr, Either[OutElem, OutDone]]
+      ]
+  ):
 
     self =>
 
     // Whatever the upstream we give it, this produces a new thing we can pull from, and every time we emit and element we
     // will transform it with the function
     def mapElem[OutElem2](
-      f: OutElem => OutElem2
+        f: OutElem => OutElem2
     ): ZChannel[Env, InErr, InElem, InDone, OutErr, OutElem2, OutDone] =
       ZChannel { upstream =>
         run(upstream).map(_.map(_.left.map(f)))
       }
 
-    def >>>[Env1 <: Env : EnvironmentTag, OutErr2, OutElem2, OutDone2](
-      that: ZChannel[Env1, OutErr, OutElem, OutDone, OutErr2, OutElem2, OutDone2]
+    def >>>[Env1 <: Env: EnvironmentTag, OutErr2, OutElem2, OutDone2](
+        that: ZChannel[
+          Env1,
+          OutErr,
+          OutElem,
+          OutDone,
+          OutErr2,
+          OutElem2,
+          OutDone2
+        ]
     ): ZChannel[Env1, InErr, InElem, InDone, OutErr2, OutElem2, OutDone2] =
       ZChannel { upstream =>
         ZIO.environment[Env].flatMap { environment =>
-          that.run(self.run(upstream)
-                       .map(_.provideEnvironment(environment))
-                       .provideSomeEnvironment[Scope](_ ++ environment))
+          that.run(
+            self
+              .run(upstream)
+              .map(_.provideEnvironment(environment))
+              .provideSomeEnvironment[Scope](_ ++ environment)
+          )
         }
       }
 
@@ -115,8 +148,8 @@ object Channeling extends ZIOAppDefault:
 
     The problem is:
 
-      * we run that with the result of running self
-      * but, as we have used ZIO.scoped we close the pull we are returning, so if this pull needs
+     * we run that with the result of running self
+     * but, as we have used ZIO.scoped we close the pull we are returning, so if this pull needs
         a resource (e.g. a file descriptor), as a stream gives elements one-by-one, when we are
         pulling from the result we can get an error because the resource is already closed.
 
@@ -133,7 +166,7 @@ object Channeling extends ZIOAppDefault:
             }
         }
       }
-      */
+     */
 
     /* NOTE to myself ideas on scopes:
 
@@ -150,7 +183,7 @@ object Channeling extends ZIOAppDefault:
         inside the ZIO.scoped that will closes it. And this explains also that the scope can be extended as well.
 
       The needed Scope will be provided at the end of the world for this resource.
-    */
+     */
 
     /* @adamfraser
 
@@ -164,15 +197,22 @@ object Channeling extends ZIOAppDefault:
       It is like any other workflow that requires some context. If I access a Kafka service in the environment
       and do something with it I don’t have a Kafka service yet but I create a workflow that needs a Kafka service
       to be run and that can be provided later.
-    */
+     */
 
-    def runDrain(using ev1: Any <:< InErr, ev2: Any <:< InElem, ev3: Any <:< InDone): ZIO[Env, OutErr, (Chunk[OutElem], OutDone)] =
+    def runDrain(using
+        ev1: Any <:< InErr,
+        ev2: Any <:< InElem,
+        ev3: Any <:< InDone
+    ): ZIO[Env, OutErr, (Chunk[OutElem], OutDone)] =
       ZIO.scoped {
-        self.run(ZIO.succeed(ZIO.succeed(Right(()))))
+        self
+          .run(ZIO.succeed(ZIO.succeed(Right(()))))
           .flatMap { pull =>
-            def loop(acc: Chunk[OutElem]): ZIO[Env, OutErr, (Chunk[OutElem], OutDone)] =
+            def loop(
+                acc: Chunk[OutElem]
+            ): ZIO[Env, OutErr, (Chunk[OutElem], OutDone)] =
               pull.flatMap {
-                case Left(elem) => loop(acc :+ elem)
+                case Left(elem)  => loop(acc :+ elem)
                 case Right(done) => ZIO.succeed(acc -> done)
               }
             loop(Chunk.empty)
@@ -181,11 +221,11 @@ object Channeling extends ZIOAppDefault:
 
   end ZChannel
 
-
   object ZChannel:
 
     def fromIteratorChunk[A](
-      iterator: => Iterator[A], chunkSize: Int = 1
+        iterator: => Iterator[A],
+        chunkSize: Int = 1
     ): ZChannel[Any, Any, Any, Any, Nothing, Chunk[A], Any] =
       ZChannel { _ =>
         ZIO.succeed(iterator.grouped(chunkSize)).map { iterator =>
@@ -204,7 +244,9 @@ object Channeling extends ZIOAppDefault:
   // - the OutElem will be Chunk[A] (we recover chunkiness)
   // - and we can use anything for signaling the end of the stream (OutDone)
 
-  final case class ZStream[-R, +E, +A](channel: ZChannel[R, Any, Any, Any, E, Chunk[A], Any]):
+  final case class ZStream[-R: EnvironmentTag, +E, +A](
+      channel: ZChannel[R, Any, Any, Any, E, Chunk[A], Any]
+  ):
 
     self =>
 
@@ -213,8 +255,27 @@ object Channeling extends ZIOAppDefault:
         channel.mapElem(_.map(f))
       }
 
-    def run[R1 <: R : EnvironmentTag, E2, Z](sink: ZSink[R1, E, E2, A, Z]): ZIO[R1, E2, Z] =
+    def run[R1 <: R: EnvironmentTag, E2, Z](
+        sink: ZSink[R1, E, E2, A, Z]
+    ): ZIO[R1, E2, Z] =
       (self.channel >>> sink.channel).runDrain.map(_._2)
+
+    def take(n: Int): ZStream[R, E, A] =
+      ZStream {
+        ZChannel { upstream =>
+          Ref.make(n).zip(self.channel.run(upstream)).map { (ref, pull) =>
+            ref.get.flatMap { i =>
+              if i > 0 then
+                pull.flatMap {
+                  case Left(chunk) =>
+                    ref.update(_ - chunk.size) *> ZIO.succeed(Left(chunk.take(i)))
+                  case Right(done) => ZIO.succeed(Right(done))
+                }
+              else ZIO.succeed(Right(()))
+            }
+          }
+        }
+      }
 
   end ZStream
 
@@ -228,7 +289,10 @@ object Channeling extends ZIOAppDefault:
     //      }
     // But we can implement this at the channel level
 
-    def fromIterator[A](iterator: Iterator[A], chunkSize: Int = 1): ZStream[Any, Nothing, A] =
+    def fromIterator[A](
+        iterator: Iterator[A],
+        chunkSize: Int = 1
+    ): ZStream[Any, Nothing, A] =
       ZStream {
         ZChannel.fromIteratorChunk(iterator, chunkSize)
       }
@@ -238,7 +302,9 @@ object Channeling extends ZIOAppDefault:
   // InElem: we get a Chunk[A] from the stream (the stream is chunked)
   // InDone:  we don't have a useful InDone because it just signals that the upstream has no more elements, so we use Any
   // OutElem: is Nothing because we are not producing values until we give a summary value when we're done.
-  final case class ZSink[-R, -EIn, +EOut, -I, +O](channel: ZChannel[R, EIn, Chunk[I], Any, EOut, Nothing, O])
+  final case class ZSink[-R, -EIn, +EOut, -I, +O](
+      channel: ZChannel[R, EIn, Chunk[I], Any, EOut, Nothing, O]
+  )
 
   object ZSink:
 
@@ -254,7 +320,7 @@ object Channeling extends ZIOAppDefault:
             def loop(acc: Chunk[A]): IO[E, Either[Nothing, Chunk[A]]] =
               pull.flatMap {
                 case Left(chunk) => loop(acc ++ chunk)
-                case Right(_) => ZIO.succeed(Right(acc))
+                case Right(_)    => ZIO.succeed(Right(acc))
               }
             loop(Chunk.empty)
           }
@@ -269,10 +335,10 @@ object Channeling extends ZIOAppDefault:
   // Requirements have a minimum expectation, the more you know, the more you expect of a type, and the less you can accept
   // Expectations get maximally vague, the more you return, the less you know but the more you can accept
 
-  val stream = ZStream.fromIterator(Iterator(1, 2, 3, 4, 5)).map(_ * 2)
+  val stream = ZStream.fromIterator(Iterator(1, 2, 3, 4, 5)).map(_ * 2).take(3)
 
   val run =
     stream.run(ZSink.runCollect).debug
-    //(stream.channel >>> ZSink.runCollect.channel).runDrain.debug
+    // (stream.channel >>> ZSink.runCollect.channel).runDrain.debug
 
 end Channeling
