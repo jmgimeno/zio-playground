@@ -95,6 +95,7 @@ project/plugins/project/
 .metals/
 .bloop/
 project/metals.sbt
+project/project/metals.sbt
 
 ### macOS template
 # General
