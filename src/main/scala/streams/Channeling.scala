@@ -7,12 +7,15 @@ object Channeling extends ZIOAppDefault:
   // ZIO Streams — Part 3 — Channels
   // https://youtu.be/trF44bGHwXg
 
-  // A stream incrementally produce a bunch of values from something (e.g. an iterator, a file, ...)
+  // A stream incrementally produce a bunch of values from something (e.g. an 
+  // iterator, a file, ...)
   //
   // final case class ZStream[-R, +E, +A](
   //     process: ZIO[R with Scope, E, ZIO[R, Option[E], A]])
 
-  // A sink is the "dual" of a stream that consumes a bunch of values to produce a summary value
+  // A sink is the "dual" of a stream that consumes a bunch of values to 
+  // produce a summary value
+
   //
   // final case class ZSink[-R, +E, -I, +O](
   //     run: ZIO[R with Scope, E, Chunk[I] => ZIO[R, E, Option[O]]])
@@ -73,17 +76,24 @@ object Channeling extends ZIOAppDefault:
   //     NOTE: We'll ignore the chunking at the channel level
   //     - The stream part of the channel can be represented as:
   //       (run: ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]])
-  //     - But, as we've said, we need an upstream to do this pull, so channel is saying: if you give me some
-  //       upstream I can go ahead and you'll be able to pull from me, and I'll perform the logic of when I
-  //       want to pull from upstream or what I'm gonna do and will eventually give the value that you're pulling from
-  //       (run: ZIO[Env with Scope, OutErr, IO[InErr, Either[InElem, InDone]] => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]]])
+  //     - But, as we've said, we need an upstream to do this pull, so channel is saying: if 
+  //       you give me some upstream I can go ahead and you'll be able to pull from me, and I'll 
+  //       perform the logic of when I want to pull from upstream or what I'm gonna do and will 
+  //       eventually give the value that you're pulling from
+  //       (run: ZIO[Env with Scope, OutErr, IO[InErr, Either[InElem, InDone]] 
+  //                 => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]]])
+  //
   //     - An the same way we have the channel being managed, the upstream can be managed as well
-  //       (run: ZIO[Env with Scope, OutErr, ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]]])
-  //     - NOTE: upstream  does not get the Env (it doesn't compile if it takes it) but, as it's accessible in the outer managed resource
-  //       we can provide it if we need it.
-  //     - Instead of a managed function, we only have a function that says: you give me the upstream you want to pull from and I will give you something
-  //       that you can open and then pull from
-  //       (run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]])
+  //       (run: ZIO[Env with Scope, OutErr, 
+  //                 ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] 
+  //                    => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]]])
+  //     - NOTE: upstream  does not get the Env (it doesn't compile if it takes it) but, as it's 
+  //       accessible in the outer managed resource we can provide it if we need it.
+  //     - Instead of a managed function, we only have a function that says: you give me the 
+  //       upstream you want to pull from and I will give you something that you can open and 
+  //       then pull from
+  //       (run: ZIO[Scope, InErr, IO[InErr, Either[InElem, InDone]]] 
+  //                => ZIO[Env with Scope, OutErr, ZIO[Env, OutErr, Either[OutElem, OutDone]]])
 
   final case class ZChannel[
       -Env: EnvironmentTag,
@@ -103,8 +113,8 @@ object Channeling extends ZIOAppDefault:
 
     self =>
 
-    // Whatever the upstream we give it, this produces a new thing we can pull from, and every time we emit and element we
-    // will transform it with the function
+    // Whatever the upstream we give it, this produces a new thing we can pull from, and every 
+    // time we emit and element we will transform it with the function
     def mapElem[OutElem2](
         f: OutElem => OutElem2
     ): ZChannel[Env, InErr, InElem, InDone, OutErr, OutElem2, OutDone] =
@@ -187,16 +197,17 @@ object Channeling extends ZIOAppDefault:
 
     /* @adamfraser
 
-      Another way to think about it is just not defining the end of the scope yet. That's really what Scope
-      gets you. It is a "dynamic" scope so you can keep doing more things with the resource by using operators
-      like flatMap and the life of the resource just keeps getting extended until you finally call ZIO.scoped
-      and that defines the lifetime of the resource. So all we're saying is that we're not ready to define the
-      lifetime of these resources yet, because we might always compose them with other stream operators like
-      piping this whole thing to something else.
+      Another way to think about it is just not defining the end of the scope yet. That's really 
+      what Scope gets you. It is a "dynamic" scope so you can keep doing more things with the 
+      resource by using operators like flatMap and the life of the resource just keeps getting 
+      extended until you finally call ZIO.scoped and that defines the lifetime of the resource. 
+      So all we're saying is that we're not ready to define the lifetime of these resources yet, 
+      because we might always compose them with other stream operators like piping this whole 
+      thing to something else.
 
-      It is like any other workflow that requires some context. If I access a Kafka service in the environment
-      and do something with it I don’t have a Kafka service yet but I create a workflow that needs a Kafka service
-      to be run and that can be provided later.
+      It is like any other workflow that requires some context. If I access a Kafka service in 
+      the environment and do something with it I don’t have a Kafka service yet but I create a 
+      workflow that needs a Kafka service to be run and that can be provided later.
      */
 
     def runDrain(using
@@ -299,9 +310,11 @@ object Channeling extends ZIOAppDefault:
 
   end ZStream
 
-  // InElem: we get a Chunk[A] from the stream (the stream is chunked)
-  // InDone:  we don't have a useful InDone because it just signals that the upstream has no more elements, so we use Any
-  // OutElem: is Nothing because we are not producing values until we give a summary value when we're done.
+  // InElem:  we get a Chunk[A] from the stream (the stream is chunked)
+  // InDone:  we don't have a useful InDone because it just signals that the upstream has no more 
+  //          elements, so we use Any
+  // OutElem: is Nothing because we are not producing values until we give a summary value when 
+  //          we're done.
   final case class ZSink[-R, -EIn, +EOut, -I, +O](
       channel: ZChannel[R, EIn, Chunk[I], Any, EOut, Nothing, O]
   )
@@ -332,8 +345,10 @@ object Channeling extends ZIOAppDefault:
   // Some comments on variance:
   // - In-types (contravariant) => requirements
   // - Out-types (covariant) => expectations
-  // Requirements have a minimum expectation, the more you know, the more you expect of a type, and the less you can accept
-  // Expectations get maximally vague, the more you return, the less you know but the more you can accept
+  // Requirements have a minimum expectation, the more you know, the more you expect of a type, 
+  // and the less you can accept
+  // Expectations get maximally vague, the more you return, the less you know but the more you 
+  // can accept
 
   val stream = ZStream.fromIterator(Iterator(1, 2, 3, 4, 5)).map(_ * 2).take(3)
 
